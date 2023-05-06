@@ -35,6 +35,18 @@ pygame.init()
 WIN = pygame.display.set_mode((WIDTH, HIDTH))
 pygame.display.set_caption("Pathfinder Algo")
 
+# loading robot image
+image = pygame.image.load("boot.png")
+robot = pygame.transform.scale(image, (image.get_width() // 2, image.get_height() // 2))
+
+def degrees(angle_rad):
+    angle_deg = angle_rad * int(180 / np.pi)
+    return angle_deg
+
+def display_robot(row, col, angle):
+    rotated_robot = pygame.transform.rotate(robot, angle)
+    WIN.blit(rotated_robot, (col * DIM, row * DIM))
+
 def draw_path(self, surface):
     print(len(self.path))
     for i in range(len(self.path)):
@@ -121,6 +133,9 @@ class MapSubscriber(Node):
         self.map_origin_y = 0
         self.robot_position_x = 0
         self.robot_position_y = 0
+        self.row = 0
+        self.col = 0
+        self.angle = 0
 
 
         #Node's definition
@@ -137,10 +152,11 @@ class MapSubscriber(Node):
     def odom_callback(self, msg):
         self.robot_position_x = msg.pose.pose.position.x
         self.robot_position_y = msg.pose.pose.position.y
-        print("current robot posiont : ", self.robot_position_x, " ", self.robot_position_y)
-        col = int((self.robot_position_x - self.map_origin_x) / self.resolution)
-        row = int((self.robot_position_y - self.map_origin_y) / self.resolution)
-        print(row, col)
+        self.col = int((self.robot_position_x - self.map_origin_x) / self.resolution)
+        self.row = int((self.robot_position_y - self.map_origin_y) / self.resolution)
+        self.angle = degrees(msg.pose.pose.orientation.z)
+        print(self.angle)
+        display_robot(self.row, self.col, self.angle - 180)
 
     def map_callback(self, msg):
         map_array = msg.data
@@ -159,13 +175,13 @@ class MapSubscriber(Node):
 
     def background_task(self):
         while True:
-            print("i'm here")
             if self.matrix:
                 surface, matrix_grid = creat_surface(self.matrix)
+                if self.path:
+                    surface = draw_path(self, surface)
                 draw(surface, self.matrix)
                 make_grid(self.matrix)
                 pygame.display.update()
-                print(self.start, self.end)
 
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
@@ -176,25 +192,16 @@ class MapSubscriber(Node):
                     # lef click on screen
                     if pygame.mouse.get_pressed()[0]:
                         pos = pygame.mouse.get_pos()
-                        
-                        if not self.start:
-                            self.start_pos = get_pos(pos)
-                            self.start = True
-                            self.end = None
-                            print(self.start_pos)
-
-                        else:
-                            self.end_pos = get_pos(pos)
-                            self.end = True
-                            print(self.end_pos)
+                        self.end_pos = get_pos(pos)
+                        self.start_pos = (self.row , self.col)
+                        self.end = True
+                        print(self.end_pos)
 
                     if self.end:
+                        print(self.start_pos)
                         self.path = searching_path(self.start_pos, self.end_pos, matrix_grid)
-                        surface = draw_path(self, surface)
-                        draw(surface, self.matrix)
-                        make_grid(self.matrix)
-                        pygame.display.update()
-                        end = None
+                        self.end = None
+
             self.clock.tick(60)
 
 def main():
