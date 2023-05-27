@@ -9,6 +9,7 @@ from pathfinding.core.diagonal_movement import DiagonalMovement
 
 from PIL import Image
 import numpy as np
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -114,6 +115,30 @@ def get_pos(pos):
     col = mouse_pos[0] // DIM
     return(row,col)
 
+def get_angle(start_pos, end_pos):
+    angle = 0
+    start_x, start_y = start_pos
+    end_x, end_y = end_pos
+    dx = start_y - end_y
+    dy = start_x - end_x
+
+    if (dx == 0): dx = dx + 0.000001
+
+    if (dx > 0 and dy > 0): 
+        angle = degrees(np.arctan(dy/dx))
+    elif (dx < 0 and dy > 0): 
+        angle = 180 - abs(degrees(np.arctan(dy/dx)))
+    elif (dx < 0 and dy < 0): 
+        angle = 180 + abs(degrees(np.arctan(dy/dx)))
+    elif (dx > 0 and dy < 0): 
+        angle = 360 - abs(degrees(np.arctan(dy/dx)))
+
+    return angle
+
+def get_robot_oriantation_for_fuzzy(robot_oriantion):
+    if (robot_oriantion < 0) : robot_oriantion += 360
+    return robot_oriantion    
+
 class MapSubscriber(Node):
 
     def __init__(self):
@@ -136,6 +161,7 @@ class MapSubscriber(Node):
         self.row = 0
         self.col = 0
         self.angle = 0
+        self.angle_bp = 0
 
 
         #Node's definition
@@ -154,10 +180,35 @@ class MapSubscriber(Node):
         self.robot_position_y = msg.pose.pose.position.y
         self.col = int((self.robot_position_x - self.map_origin_x) / self.resolution)
         self.row = int((self.robot_position_y - self.map_origin_y) / self.resolution)
-        self.angle = degrees(msg.pose.pose.orientation.z)
-        print(self.angle)
+
+        orientation = msg.pose.pose.orientation
+
+        # Convert quaternion to Euler angles
+        roll, pitch, yaw = self.quaternion_to_euler(
+            orientation.x,
+            orientation.y,
+            orientation.z,
+            orientation.w
+        )
+
+        self.angle = degrees(yaw)
         display_robot(self.row, self.col, self.angle - 180)
 
+    def quaternion_to_euler(self, x, y, z, w):
+        # Convert quaternion to Euler angles
+        sinr_cosp = 2.0 * (w * x + y * z)
+        cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        sinp = 2.0 * (w * y - z * x)
+        pitch = math.asin(sinp)
+
+        siny_cosp = 2.0 * (w * z + x * y)
+        cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        return roll, pitch, yaw
+    
     def map_callback(self, msg):
         map_array = msg.data
         self.map_width = msg.info.width
@@ -173,6 +224,17 @@ class MapSubscriber(Node):
                 map_2d[y][x] = map_array[y * self.map_width + x]
         self.matrix = map_2d
 
+    def send_input_for_fuzzy(self, robot_oriantation_for_fuzzy, angle_bp):
+        
+        dx = abs(self.start_pos[1] - self.end_pos[1])
+        dy = abs(self.start_pos[0] - self.end_pos[0])
+        self.distance_for_fuzzy = 0
+        
+        if (np.sqrt(dx * dx + dy * dy)) : self.distance_for_fuzzy = 1
+        self.angle_for_fuzzy = robot_oriantation_for_fuzzy - angle_bp
+
+        print(self.distance_for_fuzzy, self.angle_for_fuzzy)
+
     def background_task(self):
         while True:
             if self.matrix:
@@ -183,23 +245,26 @@ class MapSubscriber(Node):
                 make_grid(self.matrix)
                 pygame.display.update()
 
+                # print angle
+                self.send_input_for_fuzzy(get_robot_oriantation_for_fuzzy(-self.angle), self.angle_bp)
+            
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         pygame.quit()
                         self.destroy_node()
                         rclpy.shutdown()
                         sys.exit()
+
                     # lef click on screen
                     if pygame.mouse.get_pressed()[0]:
                         pos = pygame.mouse.get_pos()
                         self.end_pos = get_pos(pos)
                         self.start_pos = (self.row , self.col)
                         self.end = True
-                        print(self.end_pos)
 
                     if self.end:
-                        print(self.start_pos)
                         self.path = searching_path(self.start_pos, self.end_pos, matrix_grid)
+                        self.angle_bp = get_angle(self.start_pos, self.end_pos)
                         self.end = None
 
             self.clock.tick(60)
