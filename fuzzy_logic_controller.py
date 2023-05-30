@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 from std_msgs.msg import Int32
 from std_msgs.msg import Float32
 from geometry_msgs.msg import Twist
@@ -35,22 +36,22 @@ angular_vel.automf(5)
 #fuzzy rules 
 rule1 = ctrl.Rule(angle['poor'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
 rule1.label = 'rule1'
-rule2 = ctrl.Rule(angle['poor'] & distance['one'], [linear_vel['zero'], angular_vel['poor']])
+rule2 = ctrl.Rule(angle['poor'] & distance['one'], [linear_vel['zero'], angular_vel['good']])
 rule2.label = 'rule2'
 
 rule3 = ctrl.Rule(angle['mediocre'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
 rule3.label = 'rule3'
-rule4 = ctrl.Rule(angle['mediocre'] & distance['one'], [linear_vel['zero'], angular_vel['mediocre']])
+rule4 = ctrl.Rule(angle['mediocre'] & distance['one'], [linear_vel['zero'], angular_vel['decent']])
 rule4.label = 'rule4'
 
 rule5 = ctrl.Rule(angle['decent'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
 rule5.label = 'rule5'
-rule6 = ctrl.Rule(angle['decent'] & distance['one'], [linear_vel['zero'], angular_vel['decent']])
+rule6 = ctrl.Rule(angle['decent'] & distance['one'], [linear_vel['zero'], angular_vel['mediocre']])
 rule6.label = 'rule6'
 
 rule7 = ctrl.Rule(angle['good'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
 rule7.label = 'rule7'
-rule8 = ctrl.Rule(angle['good'] & distance['one'], [linear_vel['zero'], angular_vel['good']])
+rule8 = ctrl.Rule(angle['good'] & distance['one'], [linear_vel['zero'], angular_vel['poor']])
 rule8.label = 'rule8'
 
 rule9 = ctrl.Rule(angle['average'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
@@ -71,6 +72,7 @@ class HelloWorldSubscriber(Node):
         self.msg = Twist()
         self.msg.linear.x = 0.0
         self.msg.angular.z = 0.0
+        self.sync = "end"
         self.clock = pygame.time.Clock()
 
         super().__init__('fuzzy_node')
@@ -86,6 +88,12 @@ class HelloWorldSubscriber(Node):
             'input_angle',
             self.angle_callback,
             10)
+        
+        self.subscription = self.create_subscription(
+            String,
+            'sync',
+            self.sync_callback,
+            10)
 
         self.cmd_pub_= self.create_publisher(Twist, "/cmd_vel",10)
         
@@ -95,6 +103,8 @@ class HelloWorldSubscriber(Node):
         self.thread = threading.Thread(target=self.background_task)
         self.thread.start()
 
+    def sync_callback(self, msg):
+        self.sync = msg.data
     
     def angle_callback(self, msg):
         self.input_angle = msg.data
@@ -104,18 +114,23 @@ class HelloWorldSubscriber(Node):
     
     def background_task(self):
         while True:
+            if self.sync == "start" :
+                #set input to fuzzy
+                simulation.input['distance'] = self.input_distance 
+                simulation.input['angle'] = self.input_angle 
+                simulation.compute()
 
-            #set input to fuzzy
-            simulation.input['distance'] = self.input_distance 
-            simulation.input['angle'] = self.input_angle 
-            simulation.compute()
-            
-            self.msg.linear.x = simulation.output['linear_velocity']
-            self.msg.angular.z = simulation.output['angular_velocity']
+                # output
+                self.msg.angular.z = simulation.output['angular_velocity']
+                self.msg.linear.x = simulation.output['linear_velocity']
 
-            print(self.msg.linear.x, self.msg.angular.z)
-            self.cmd_pub_.publish(self.msg)
-            self.clock.tick(60)
+                # classical commande
+                if(self.input_distance and int(self.input_angle) == 0): self.msg.linear.x = 0.06
+                else: self.msg.linear.x = 0.0
+                
+                print(self.msg.linear.x, self.msg.angular.z)
+                self.cmd_pub_.publish(self.msg)
+                self.clock.tick(60)
 
 def main(args=None):
     rclpy.init(args=args)
