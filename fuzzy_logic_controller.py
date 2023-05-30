@@ -122,9 +122,8 @@ class HelloWorldSubscriber(Node):
 
                 # output
                 self.msg.angular.z = simulation.output['angular_velocity']
-                self.msg.linear.x = simulation.output['linear_velocity']
 
-                # classical commande
+                # classical commande for the linear velocity 
                 if(self.input_distance and int(self.input_angle) == 0): self.msg.linear.x = 0.06
                 else: self.msg.linear.x = 0.0
                 
