@@ -16,21 +16,23 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
-# sets and membership of input
+# sets input and output 
 distance = ctrl.Antecedent(np.arange(0,2,1), 'distance')
+vl = 0.2
+linear_vel = ctrl.Consequent(np.arange(0, vl + 0.5, vl), 'linear_velocity')
+
+angle = ctrl.Antecedent(np.arange(-360, 360, 1), 'angle')
+angular_vel = ctrl.Consequent(np.arange(-0.2, 0.2, 0.01), 'angular_velocity')
+
+# sets and membership of output
 distance['zero'] = fuzz.trimf(distance.universe, [0,0,0])
 distance['one'] = fuzz.trimf(distance.universe, [1,1,1])
 
-angle = ctrl.Antecedent(np.arange(-360, 360, 1), 'angle')
-angle.automf(5)
-
-# sets and membership of output
-vl = 0.2
-linear_vel = ctrl.Consequent(np.arange(0, vl + 0.5, vl), 'linear_velocity')
 linear_vel['zero'] = fuzz.trimf(linear_vel.universe, [0,0,0])
 linear_vel['one'] = fuzz.trimf(linear_vel.universe, [vl,vl,vl])
 
-angular_vel = ctrl.Consequent(np.arange(-0.2, 0.2, 0.01), 'angular_velocity')
+angle.automf(5)
+
 angular_vel.automf(5)
 
 #fuzzy rules 
