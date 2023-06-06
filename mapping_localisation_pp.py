@@ -16,6 +16,12 @@ from rclpy.node import Node
 
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32
+from std_msgs.msg import Int32
+from std_msgs.msg import String
+
+
+
 import threading
 
 
@@ -24,6 +30,7 @@ UNKNOWN = (128, 128, 128)
 FREE = (255, 255, 255)
 OCCUPIED = (0, 0, 0)
 PATH_COLOR = (0, 255, 0) # green
+RED = (255,0,0)
 BLACK = (0 ,0 ,0)
 
 # Dimension
@@ -46,13 +53,25 @@ def degrees(angle_rad):
 
 def display_robot(row, col, angle):
     rotated_robot = pygame.transform.rotate(robot, angle)
-    WIN.blit(rotated_robot, (col * DIM, row * DIM))
+    cell_width = DIM  # Largeur de la cellule
+    cell_height = DIM  # Hauteur de la cellule
+
+    # Calculer les coordonnées pour centrer l'image dans la cellule
+    x = col * cell_width + (cell_width - rotated_robot.get_width()) // 2
+    y = row * cell_height + (cell_height - rotated_robot.get_height()) // 2
+
+    WIN.blit(rotated_robot, (x, y))
 
 def draw_path(self, surface):
-    print(len(self.path))
     for i in range(len(self.path)):
         y , x = self.path[i]
         surface[x][y].fill(PATH_COLOR)
+    return surface
+
+def draw_path_reduit(self, surface):
+    for i in range(len(self.path_reduit)):
+        y , x = self.path_reduit[i]
+        surface[x][y].fill(RED)
     return surface
 
 def creat_surface(matrix):
@@ -122,22 +141,38 @@ def get_angle(start_pos, end_pos):
     dx = start_y - end_y
     dy = start_x - end_x
 
-    if (dx == 0): dx = dx + 0.000001
+    if dx == 0 : dx = dx + 0.000001
 
-    if (dx > 0 and dy > 0): 
+    if (dx > 0 and dy >= 0): 
         angle = degrees(np.arctan(dy/dx))
-    elif (dx < 0 and dy > 0): 
+    elif (dx < 0 and dy >= 0): 
         angle = 180 - abs(degrees(np.arctan(dy/dx)))
-    elif (dx < 0 and dy < 0): 
+    elif (dx < 0 and dy <= 0): 
         angle = 180 + abs(degrees(np.arctan(dy/dx)))
-    elif (dx > 0 and dy < 0): 
+    elif (dx > 0 and dy <= 0): 
         angle = 360 - abs(degrees(np.arctan(dy/dx)))
 
     return angle
 
 def get_robot_oriantation_for_fuzzy(robot_oriantion):
-    if (robot_oriantion < 0) : robot_oriantion += 360
-    return robot_oriantion    
+    return robot_oriantion + 180
+
+def get_angle_for_fuzzy(robot_oriantation_for_fuzzy, angle_bp):
+    alpha = robot_oriantation_for_fuzzy - angle_bp
+    if alpha > 180 :
+        alpha = -(360 - alpha + angle_bp)
+    return alpha
+
+def reduction(path):
+    i = 0
+    path_reduit = []
+    while(i < len(path)):
+        path_reduit.append(path[i])
+        i += 2
+    return path_reduit
+
+def inverse_pos(path):
+    return (path[1],path[0])
 
 class MapSubscriber(Node):
 
@@ -148,6 +183,7 @@ class MapSubscriber(Node):
         self.start = None
         self.end = None
         self.path = []
+        self.path_reduit = []
         self.matrix = []
         self.clock = pygame.time.Clock()
 
@@ -158,17 +194,28 @@ class MapSubscriber(Node):
         self.map_origin_y = 0
         self.robot_position_x = 0
         self.robot_position_y = 0
+        self.robot_pos = (0,0)
         self.row = 0
         self.col = 0
         self.angle = 0
         self.angle_bp = 0
+        self.i = 0
 
+        self.distance_for_fuzzy = Int32()
+        self.angle_for_fuzzy = Float32()
+        self.sync = String()
 
         #Node's definition
         rclpy.init(args=None)
         super().__init__('map_subscriber')
+
         self.subscription = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.subscription = self.create_subscription(Odometry,'/odom',self.odom_callback,10)
+
+        self.pub_distance = self.create_publisher(Int32, 'input_distance', 10)
+        self.pub_angle = self.create_publisher(Float32, 'input_angle', 10)
+        self.pub_sync = self.create_publisher(String, 'sync', 10)
+
         self.subscription  # prevent unused variable warning
        
        # creat Thread
@@ -192,7 +239,7 @@ class MapSubscriber(Node):
         )
 
         self.angle = degrees(yaw)
-        display_robot(self.row, self.col, self.angle - 180)
+        display_robot(self.row, self.col, 360 -(self.angle + 180))
 
     def quaternion_to_euler(self, x, y, z, w):
         # Convert quaternion to Euler angles
@@ -225,29 +272,48 @@ class MapSubscriber(Node):
         self.matrix = map_2d
 
     def send_input_for_fuzzy(self, robot_oriantation_for_fuzzy, angle_bp):
-        
-        dx = abs(self.start_pos[1] - self.end_pos[1])
-        dy = abs(self.start_pos[0] - self.end_pos[0])
-        self.distance_for_fuzzy = 0
-        
-        if (np.sqrt(dx * dx + dy * dy)) : self.distance_for_fuzzy = 1
-        self.angle_for_fuzzy = robot_oriantation_for_fuzzy - angle_bp
+        dx = abs(self.robot_pos[1] - self.end_pos[1])
+        dy = abs(self.robot_pos[0] - self.end_pos[0])
 
-        print(self.distance_for_fuzzy, self.angle_for_fuzzy)
+        self.distance_for_fuzzy.data = 0
+        self.angle_for_fuzzy.data = 0.0
+        if (np.sqrt(dx * dx + dy * dy)) : self.distance_for_fuzzy.data = 1
+        print("distance between ", self.i, "and", self.i + 1, "is :", np.sqrt(dx * dx + dy * dy))
+        print(self.robot_pos, self.end_pos)
 
+        if not self.distance_for_fuzzy.data:
+            if self.path_reduit :
+                self.start_pos = inverse_pos(self.path_reduit[self.i])
+                self.end_pos = inverse_pos(self.path_reduit[self.i + 1])
+                if(self.i < len(self.path_reduit) - 2):
+                    self.i+=1
+                    self.sync.data = "start"
+                else:
+                    self.sync.data = "end"
+                print(self.i, len(self.path_reduit))
+                print("hello debug")
+
+        self.angle_for_fuzzy.data = get_angle_for_fuzzy(robot_oriantation_for_fuzzy, angle_bp)
+        self.pub_distance.publish(self.distance_for_fuzzy)
+        self.pub_angle.publish(self.angle_for_fuzzy)
+        self.pub_sync.publish(self.sync)
+        #print(self.distance_for_fuzzy.data, self.angle_for_fuzzy.data)
+    
     def background_task(self):
         while True:
             if self.matrix:
+                self.robot_pos = (self.row , self.col)
+                self.angle_bp = get_angle(self.start_pos, self.end_pos)
                 surface, matrix_grid = creat_surface(self.matrix)
                 if self.path:
                     surface = draw_path(self, surface)
+                    surface = draw_path_reduit(self, surface)
                 draw(surface, self.matrix)
                 make_grid(self.matrix)
                 pygame.display.update()
 
-                # print angle
-                self.send_input_for_fuzzy(get_robot_oriantation_for_fuzzy(-self.angle), self.angle_bp)
-            
+                self.send_input_for_fuzzy(get_robot_oriantation_for_fuzzy(self.angle), self.angle_bp)
+
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         pygame.quit()
@@ -259,12 +325,14 @@ class MapSubscriber(Node):
                     if pygame.mouse.get_pressed()[0]:
                         pos = pygame.mouse.get_pos()
                         self.end_pos = get_pos(pos)
-                        self.start_pos = (self.row , self.col)
+                        self.i = 0
                         self.end = True
 
                     if self.end:
-                        self.path = searching_path(self.start_pos, self.end_pos, matrix_grid)
-                        self.angle_bp = get_angle(self.start_pos, self.end_pos)
+                        self.path = searching_path(self.robot_pos, self.end_pos, matrix_grid)
+                        self.path_reduit = reduction(self.path)
+                        self.end_pos = self.robot_pos
+                        self.start_pos = self.robot_pos
                         self.end = None
 
             self.clock.tick(60)
