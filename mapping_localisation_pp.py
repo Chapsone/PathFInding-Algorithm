@@ -2,6 +2,7 @@
 # Library
 
 import pygame, sys
+import copy
 
 from pathfinding.core.grid import Grid
 from pathfinding.finder.a_star import AStarFinder
@@ -34,7 +35,7 @@ RED = (255,0,0)
 BLACK = (0 ,0 ,0)
 
 # Dimension
-DIM = 10
+DIM = 6
 
 # setup pygame
 HIDTH = 600
@@ -87,7 +88,7 @@ def creat_surface(matrix):
             matrix_grid[i].append(0)
             if matrix[i][j] == -1:
                 surface[i][j].fill(UNKNOWN)
-                matrix_grid[i][j] = 0
+                matrix_grid[i][j] = 1
             elif matrix[i][j] == 0:
                 matrix_grid[i][j] = 1
                 surface[i][j].fill(FREE)
@@ -164,15 +165,30 @@ def get_angle_for_fuzzy(robot_oriantation_for_fuzzy, angle_bp):
     return alpha
 
 def reduction(path):
+    gap = 3
     i = 0
     path_reduit = []
     while(i < len(path)):
         path_reduit.append(path[i])
-        i += 2
+        i += gap
     return path_reduit
 
 def inverse_pos(path):
     return (path[1],path[0])
+
+def augmented_matrix(matrix_grid):
+    rows = len(matrix_grid)
+    cols = len(matrix_grid[0])
+    gap = 3
+    augmented_matrix_grid = copy.deepcopy(matrix_grid)
+    for i in range(gap, rows - gap):
+        for j in range(gap, cols - gap):
+            if matrix_grid[i][j] == 0:
+                for a in range(-gap, gap + 1):
+                    for b in range(-gap, gap + 1):
+                        augmented_matrix_grid[i+a][j+b] = 0
+                        
+    return augmented_matrix_grid
 
 class MapSubscriber(Node):
 
@@ -297,14 +313,16 @@ class MapSubscriber(Node):
         self.pub_distance.publish(self.distance_for_fuzzy)
         self.pub_angle.publish(self.angle_for_fuzzy)
         self.pub_sync.publish(self.sync)
-        #print(self.distance_for_fuzzy.data, self.angle_for_fuzzy.data)
-    
+        print(self.distance_for_fuzzy.data, self.angle_for_fuzzy.data)
+
     def background_task(self):
         while True:
             if self.matrix:
                 self.robot_pos = (self.row , self.col)
                 self.angle_bp = get_angle(self.start_pos, self.end_pos)
                 surface, matrix_grid = creat_surface(self.matrix)
+                self.augmented_matrix_grid = augmented_matrix(matrix_grid)
+                
                 if self.path:
                     surface = draw_path(self, surface)
                     surface = draw_path_reduit(self, surface)
@@ -329,13 +347,14 @@ class MapSubscriber(Node):
                         self.end = True
 
                     if self.end:
-                        self.path = searching_path(self.robot_pos, self.end_pos, matrix_grid)
+                        self.path = searching_path(self.robot_pos, self.end_pos, self.augmented_matrix_grid)
+                        print(self.augmented_matrix_grid)
                         self.path_reduit = reduction(self.path)
                         self.end_pos = self.robot_pos
                         self.start_pos = self.robot_pos
                         self.end = None
 
-            self.clock.tick(60)
+            self.clock.tick(10)
 
 def main():
     node = MapSubscriber()
@@ -345,5 +364,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
