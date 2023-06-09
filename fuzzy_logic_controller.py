@@ -16,53 +16,46 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
-# sets input and output 
-distance = ctrl.Antecedent(np.arange(0,2,1), 'distance')
-vl = 0.2
-linear_vel = ctrl.Consequent(np.arange(0, vl + 0.5, vl), 'linear_velocity')
+#sets input and output
+angle = ctrl.Antecedent(np.linspace(-180, 180, 360), 'angle')
+angular_vel = ctrl.Consequent(np.linspace(-0.6, 0.6, 360), 'angular_vel')
 
-angle = ctrl.Antecedent(np.arange(-360, 360, 1), 'angle')
-angular_vel = ctrl.Consequent(np.arange(-0.2, 0.2, 0.01), 'angular_velocity')
+# Define the parameters for each membership function
+angle['poor'] = fuzz.trapmf(angle.universe, [-180, -180, -80, -30])
+angle['mediocre'] = fuzz.trimf(angle.universe, [-50, -25, 0])
 
-# sets and membership of output
-distance['zero'] = fuzz.trimf(distance.universe, [0,0,0])
-distance['one'] = fuzz.trimf(distance.universe, [1,1,1])
+angle['average'] = fuzz.trimf(angle.universe, [-5, 0, 5])
 
-linear_vel['zero'] = fuzz.trimf(linear_vel.universe, [0,0,0])
-linear_vel['one'] = fuzz.trimf(linear_vel.universe, [vl,vl,vl])
+angle['decent'] = fuzz.trimf(angle.universe, [0, 25, 50])
+angle['good'] = fuzz.trapmf(angle.universe, [30, 80, 180, 180])
 
-angle.automf(5)
+#output
+angular_vel['poor'] = fuzz.trapmf(angular_vel.universe, [-0.6, -0.6, -0.4, -0.2])
+angular_vel['mediocre'] = fuzz.trimf(angular_vel.universe, [-0.3, -0.15, 0])
 
-angular_vel.automf(5)
+angular_vel['average'] = fuzz.trimf(angular_vel.universe, [-0.1, 0, 0.1])
+
+angular_vel['decent'] = fuzz.trimf(angular_vel.universe, [0, 0.15, 0.3])
+angular_vel['good'] = fuzz.trapmf(angular_vel.universe, [0.2, 0.4, 0.6, 0.6])
 
 #fuzzy rules 
-rule1 = ctrl.Rule(angle['poor'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
-rule1.label = 'rule1'
-rule2 = ctrl.Rule(angle['poor'] & distance['one'], [linear_vel['zero'], angular_vel['good']])
+rule2 = ctrl.Rule(angle['poor'], angular_vel['good'])
 rule2.label = 'rule2'
 
-rule3 = ctrl.Rule(angle['mediocre'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
-rule3.label = 'rule3'
-rule4 = ctrl.Rule(angle['mediocre'] & distance['one'], [linear_vel['zero'], angular_vel['decent']])
+rule4 = ctrl.Rule(angle['mediocre'], angular_vel['decent'])
 rule4.label = 'rule4'
 
-rule5 = ctrl.Rule(angle['decent'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
-rule5.label = 'rule5'
-rule6 = ctrl.Rule(angle['decent'] & distance['one'], [linear_vel['zero'], angular_vel['mediocre']])
+rule6 = ctrl.Rule(angle['decent'], angular_vel['mediocre'])
 rule6.label = 'rule6'
 
-rule7 = ctrl.Rule(angle['good'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
-rule7.label = 'rule7'
-rule8 = ctrl.Rule(angle['good'] & distance['one'], [linear_vel['zero'], angular_vel['poor']])
+rule8 = ctrl.Rule(angle['good'], angular_vel['poor'])
 rule8.label = 'rule8'
 
-rule9 = ctrl.Rule(angle['average'] & distance['zero'], [linear_vel['zero'], angular_vel['average']])
-rule9.label = 'rule9'
-rule10 = ctrl.Rule(angle['average'] & distance['zero'], [linear_vel['one'], angular_vel['average']])
+rule10 = ctrl.Rule(angle['average'], angular_vel['average'])
 rule10.label = 'rule10'
 
 # Control system
-control = ctrl.ControlSystem([rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9, rule10])
+control = ctrl.ControlSystem([rule2, rule4, rule6, rule8, rule10])
 
 # Create control system simulation
 simulation = ctrl.ControlSystemSimulation(control)
@@ -118,20 +111,19 @@ class HelloWorldSubscriber(Node):
         while True:
             if self.sync == "start" :
                 #set input to fuzzy
-                simulation.input['distance'] = self.input_distance 
                 simulation.input['angle'] = self.input_angle 
                 simulation.compute()
 
                 # output
-                self.msg.angular.z = simulation.output['angular_velocity']
+                self.msg.angular.z = simulation.output['angular_vel']
 
                 # classical commande for the linear velocity 
-                if(self.input_distance and int(self.input_angle) == 0): self.msg.linear.x = 0.06
+                if(self.input_distance and int(self.input_angle) == 0): self.msg.linear.x = 0.08
                 else: self.msg.linear.x = 0.0
-                
-                print(self.msg.linear.x, self.msg.angular.z)
+                #self.msg.linear.x = 0.1
+                print(self.input_angle, self.msg.linear.x, self.msg.angular.z)
                 self.cmd_pub_.publish(self.msg)
-                self.clock.tick(60)
+                self.clock.tick(10)
 
 def main(args=None):
     rclpy.init(args=args)
